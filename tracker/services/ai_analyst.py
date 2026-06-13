@@ -9,22 +9,18 @@ class AIAnalystService(BaseService):
     """
     Uses Claude AI to analyse market data, summarise news,
     and answer questions about your portfolio.
+    Each operation gets its own database session.
     """
 
     def __init__(self):
         super().__init__()
         self.__client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-        self.__news_repo = NewsRepository(self._session)
-        self.__asset_repo = AssetRepository(self._session)
         self.__model = "claude-sonnet-4-6"
 
     def summarise_news(self, article: NewsArticle) -> NewsArticle:
         """
-        Analyses a news article and updates it with:
-        - A plain English summary
-        - Affected assets
-        - Sentiment
-        - Portfolio impact analysis
+        Analyses a news article and updates it with summary,
+        sentiment, affected assets, and portfolio impact.
         """
         try:
             prompt = f"""You are a financial analyst. Analyse this news article and respond in this exact format:
@@ -52,16 +48,18 @@ Article source: {article.source}
             )
 
             response = message.content[0].text
-            return self._parse_news_response(article, response)
+            return self._parse_and_save(article, response)
 
         except Exception as e:
             self._handle_error(e, f"Failed to analyse article: {article.title}")
             return article
 
-    def _parse_news_response(self, article: NewsArticle, response: str) -> NewsArticle:
+    def _parse_and_save(self, article: NewsArticle, response: str) -> NewsArticle:
         """
-        Protected — parses Claude's structured response and updates the article.
+        Protected — parses Claude's response and saves back to database
+        using a fresh session to avoid threading conflicts.
         """
+        session = self._get_session()
         try:
             lines = response.strip().split("\n")
             current_section = None
@@ -79,31 +77,37 @@ Article source: {article.source}
                 elif current_section and line:
                     sections[current_section].append(line)
 
-            article.summary = " ".join(sections["SUMMARY"]).strip()
-            article.sentiment = " ".join(sections["SENTIMENT"]).strip().lower()
-            article.impact_analysis = " ".join(sections["IMPACT"]).strip()
+            # Fetch a fresh copy of the article in this session
+            from tracker.repositories import NewsRepository
+            news_repo = NewsRepository(session)
+            fresh_article = news_repo.get_by_id(article.id)
 
-            # Parse affected assets into a list
+            if not fresh_article:
+                return article
+
+            fresh_article.summary = " ".join(sections["SUMMARY"]).strip()
+            fresh_article.sentiment = " ".join(sections["SENTIMENT"]).strip().lower()
+            fresh_article.impact_analysis = " ".join(sections["IMPACT"]).strip()
+
             assets_raw = " ".join(sections["AFFECTED_ASSETS"]).strip()
             if assets_raw and assets_raw.upper() != "NONE":
-                article.affected_assets = [
+                fresh_article.affected_assets = [
                     a.strip() for a in assets_raw.split(",") if a.strip()
                 ]
             else:
-                article.affected_assets = []
+                fresh_article.affected_assets = []
 
-            self.__news_repo.update(article)
-            return article
+            news_repo.update(fresh_article)
+            return fresh_article
 
         except Exception as e:
-            self._handle_error(e, "Failed to parse AI response")
+            self._handle_error(e, "Failed to parse and save AI response")
             return article
+        finally:
+            session.close()
 
     def analyse_portfolio(self, holdings: list, price_data: dict) -> str:
-        """
-        Generates a portfolio analysis based on current holdings and prices.
-        Returns a plain English summary of portfolio performance.
-        """
+        """Generates a portfolio analysis based on current holdings and prices."""
         try:
             if not holdings:
                 return "No holdings in portfolio yet."
@@ -118,7 +122,7 @@ Article source: {article.source}
                 for symbol, snapshot in price_data.items()
             ])
 
-            prompt = f"""You are a personal financial analyst. 
+            prompt = f"""You are a personal financial analyst.
 Analyse this portfolio and give a concise, honest assessment.
 
 HOLDINGS:
@@ -147,19 +151,17 @@ Be direct and specific. Use actual numbers."""
             return "Portfolio analysis unavailable."
 
     def daily_summary(self, price_data: dict, recent_news: list) -> str:
-        """
-        Generates a morning briefing — market overview + top news impact.
-        """
+        """Generates a morning briefing — market overview plus top news impact."""
         try:
             prices_text = "\n".join([
                 f"- {symbol}: ${snapshot.price:.2f} ({snapshot.change_pct:+.2f}%)"
                 for symbol, snapshot in price_data.items()
-            ])
+            ]) if price_data else "No price data yet."
 
             news_text = "\n".join([
                 f"- {article.title} ({article.source})"
                 for article in recent_news[:5]
-            ])
+            ]) if recent_news else "No recent news yet."
 
             prompt = f"""You are a financial markets analyst giving a morning briefing.
 
@@ -190,15 +192,12 @@ Be direct, specific, and use actual numbers."""
             return "Daily summary unavailable."
 
     def chat(self, user_message: str, price_data: dict, holdings: list, recent_news: list) -> str:
-        """
-        Answers a user's question with full context of their portfolio,
-        current prices, and recent news.
-        """
+        """Answers a user question with full portfolio and market context."""
         try:
             prices_text = "\n".join([
                 f"- {symbol}: ${snapshot.price:.2f} ({snapshot.change_pct:+.2f}%)"
                 for symbol, snapshot in price_data.items()
-            ])
+            ]) if price_data else "No price data yet."
 
             holdings_text = "\n".join([
                 f"- {h.asset.symbol}: {h.quantity} units at avg ${h.average_buy_price:.2f}"
@@ -210,7 +209,7 @@ Be direct, specific, and use actual numbers."""
                 for article in recent_news[:5]
             ]) if recent_news else "No recent news."
 
-            system_prompt = f"""You are a personal financial analyst assistant. 
+            system_prompt = f"""You are a personal financial analyst assistant.
 You have access to the user's portfolio, current market prices, and recent news.
 Be concise, direct, and specific. Always use actual numbers when available.
 

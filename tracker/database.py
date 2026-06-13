@@ -32,9 +32,10 @@ class Database:
         # Create the database engine
         self.__engine = create_engine(
             f"sqlite:///{config.DATABASE_PATH}",
-            echo=False  # set to True to see SQL queries in terminal (useful for debugging)
+            echo=False,
+            connect_args={"check_same_thread": False}
         )
-
+        
         # Create a session factory
         self.__SessionFactory = sessionmaker(bind=self.__engine)
 

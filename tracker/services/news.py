@@ -10,42 +10,41 @@ import config
 class NewsFetcherService(BaseService):
     """
     Fetches financial news from RSS feeds.
-    Runs in a background thread so it never blocks the GUI.
-    Saves new articles to the database, skipping duplicates.
+    Each fetch operation gets its own database session.
     """
 
     def __init__(self, on_update=None):
         super().__init__()
-        self.__thread = None
         self.__running = False
+        self.__thread = None
         self.__on_update = on_update
-        self.__news_repo = NewsRepository(self._session)
 
     def fetch_all_feeds(self) -> list[NewsArticle]:
-        """
-        Fetches all configured RSS feeds and saves new articles.
-        Returns list of newly saved articles.
-        """
-        new_articles = []
+        """Fetches all configured RSS feeds and saves new articles."""
+        session = self._get_session()
+        try:
+            news_repo = NewsRepository(session)
+            new_articles = []
 
-        for feed_url in config.NEWS_FEEDS:
-            try:
-                articles = self._parse_feed(feed_url)
-                for article in articles:
-                    new_articles.append(article)
-            except Exception as e:
-                self._handle_error(e, f"Failed to fetch feed: {feed_url}")
+            for feed_url in config.NEWS_FEEDS:
+                try:
+                    articles = self._parse_feed(feed_url, news_repo)
+                    new_articles.extend(articles)
+                except Exception as e:
+                    self._handle_error(e, f"Failed to fetch feed: {feed_url}")
 
-        if self.__on_update and new_articles:
-            self.__on_update(new_articles)
+            if self.__on_update and new_articles:
+                self.__on_update(new_articles)
 
-        return new_articles
+            return new_articles
+        except Exception as e:
+            self._handle_error(e, "Failed to fetch all feeds")
+            return []
+        finally:
+            session.close()
 
-    def _parse_feed(self, url: str) -> list[NewsArticle]:
-        """
-        Protected — parses a single RSS feed URL.
-        Returns only articles not already in the database.
-        """
+    def _parse_feed(self, url: str, news_repo: NewsRepository) -> list[NewsArticle]:
+        """Protected — parses a single RSS feed URL."""
         feed = feedparser.parse(url)
         source = feed.feed.get("title", "Unknown")
         new_articles = []
@@ -53,11 +52,9 @@ class NewsFetcherService(BaseService):
         for entry in feed.entries:
             article_url = entry.get("link", "")
 
-            # Skip if we already have this article
-            if self.__news_repo.exists(article_url):
+            if news_repo.exists(article_url):
                 continue
 
-            # Parse the published date
             published_at = self._parse_date(entry)
 
             article = NewsArticle(
@@ -67,18 +64,14 @@ class NewsFetcherService(BaseService):
                 published_at=published_at,
             )
 
-            saved = self.__news_repo.save(article)
+            saved = news_repo.save(article)
             new_articles.append(saved)
 
         return new_articles
 
     def _parse_date(self, entry) -> datetime:
-        """
-        Protected — extracts and parses the publication date from a feed entry.
-        Falls back to current time if date is missing or unparseable.
-        """
+        """Protected — extracts and parses the publication date."""
         try:
-            import time
             time_struct = entry.get("published_parsed") or entry.get("updated_parsed")
             if time_struct:
                 return datetime(*time_struct[:6], tzinfo=timezone.utc)
@@ -87,10 +80,7 @@ class NewsFetcherService(BaseService):
         return datetime.now(timezone.utc)
 
     def start_background_loop(self, interval_minutes: int = None):
-        """
-        Starts fetching news in a background thread.
-        Defaults to the interval set in config.
-        """
+        """Starts fetching news in a background thread."""
         if interval_minutes is None:
             interval_minutes = config.NEWS_REFRESH_MINUTES
 
@@ -104,14 +94,10 @@ class NewsFetcherService(BaseService):
         self._logger.info("News fetcher started")
 
     def stop(self):
-        """Stops the background news fetching loop."""
         self.__running = False
         self._logger.info("News fetcher stopped")
 
     def __loop(self, interval_seconds: int):
-        """
-        Private — the actual background loop.
-        """
         import time
         while self.__running:
             try:
