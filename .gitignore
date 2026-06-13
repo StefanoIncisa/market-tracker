@@ -1,0 +1,24 @@
+# Virtual environment
+tracker-env/
+
+# API keys and secrets
+.env
+
+# Database
+data/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build files
+dist/
+build/
+*.spec
+
+# VS Code settings
+.vscode/
+
+# Mac junk
+.DS_Store
