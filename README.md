@@ -1,211 +1,102 @@
-# 📈 Market Tracker — Personal Finance Dashboard
+# 📈 Market Tracker
 
-A Python desktop application for tracking live stock, commodity, and ETF prices — with AI-powered portfolio analysis and a daily market briefing powered by Claude.
+A Python desktop app for following the markets in one place. It tracks live prices for stocks, ETFs, commodities and crypto, keeps a portfolio with P&L, pulls in financial news, fires price alerts and includes an AI analyst powered by the Anthropic Claude API.
 
----
+I built it to combine my finance background with what I have been learning as a developer: a layered architecture, an ORM-backed database and a real LLM integration.
 
-## ✨ Features
+## Features
 
-- **Live market prices** via `yfinance` (stocks, ETFs, commodities)
-- **News feed** scraped from Reuters, BBC Business, and MarketWatch via RSS
-- **AI Daily Briefing** — Claude analyses your portfolio and current market conditions
-- **AI Chat Interface** — ask questions about your holdings and the market
-- **Price Alerts** — get notified when assets hit your target prices
-- **Portfolio tracker** — track holdings, cost basis, and P&L
-- **Persistent database** — SQLite via SQLAlchemy ORM (PostgreSQL-ready)
+- **Live markets** for stocks, ETFs, commodities and crypto via `yfinance`
+- **Portfolio tracker** with holdings, cost basis and profit and loss
+- **Price alerts** when an asset moves past a set threshold
+- **News feed** from Reuters, BBC Business and MarketWatch RSS
+- **AI Analyst** tab: a daily briefing on your portfolio and a chat to ask questions about your holdings and the market, powered by Claude
+- **Persistent storage** with SQLAlchemy and SQLite (PostgreSQL-ready)
 
----
-
-## 🖥️ Tech Stack
+## Tech stack
 
 | Layer | Technology |
-|---|---|
-| GUI | `customtkinter` |
-| Market data | `yfinance` |
-| News | `feedparser` (RSS) |
-| Database | `SQLAlchemy` + `SQLite` |
+| --- | --- |
+| GUI | customtkinter |
+| Market data | yfinance |
+| News | feedparser (RSS) |
+| Database | SQLAlchemy ORM + SQLite |
 | AI | Anthropic Claude API |
-| Config | `python-dotenv` |
+| Config | python-dotenv |
 
----
+## Architecture
 
-## ⚙️ Prerequisites
+The app is split into layers so each part has one job:
 
-Before you start, make sure you have the following installed:
-
-- **Python 3.10+** — [python.org/downloads](https://www.python.org/downloads/)
-- **Git** — [git-scm.com](https://git-scm.com/)
-- **VS Code** (recommended) — [code.visualstudio.com](https://code.visualstudio.com/)
-
----
-
-## 🚀 Setup Instructions
-
-### 1. Clone the repository
-
-```bash
-git clone git@github.com:<your-username>/<your-repo>.git
-cd <your-repo>
+```
+GUI (tabs + reusable components)
+        │
+Controller (app_controller.py)
+        │
+Services (prices, news, alerts, portfolio, AI analyst)
+        │
+Repositories (all database reads and writes)
+        │
+Models (SQLAlchemy tables)
 ```
 
-> **SSH not set up yet?** Ask the repo owner to share the HTTPS link, or set up an SSH key following [GitHub's guide](https://docs.github.com/en/authentication/connecting-to-github-with-ssh).
+- **Models** define the database tables
+- **Repositories** handle every read and write, with one session per operation
+- **Services** hold the business logic, so the GUI never touches the database directly
+- **GUI** tabs are thin views, built from reusable widgets like `PriceRow`, `NewsCard` and `ChatBubble`
 
----
+## Project structure
 
-### 2. Create a virtual environment
+```
+market-tracker/
+├── main.py                 # Entry point
+├── config.py               # Tracked assets, RSS feeds, refresh settings
+├── requirements.txt
+└── tracker/
+    ├── database.py         # Engine and session setup
+    ├── models/             # asset, price, portfolio, alert, news
+    ├── repositories/       # one repository per model
+    ├── services/           # fetcher, news, alerts, portfolio, ai_analyst
+    ├── controllers/        # app_controller.py
+    └── gui/
+        ├── app.py
+        ├── markets_tab.py, portfolio_tab.py, news_tab.py,
+        │   analyst_tab.py, alerts_tab.py
+        └── components/     # price_row, news_card, chat_bubble, stat_card, ...
+```
 
-A virtual environment keeps your project dependencies isolated from the rest of your system.
+## Getting started
+
+Requires Python 3.10+.
 
 ```bash
+git clone https://github.com/StefanoIncisa/market-tracker.git
+cd market-tracker
+
 python -m venv venv
-```
+source venv/bin/activate        # Windows: venv\Scripts\activate
 
-Then activate it:
-
-```bash
-# macOS / Linux
-source venv/bin/activate
-
-# Windows (Command Prompt)
-venv\Scripts\activate
-
-# Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
-```
-
-You should see `(venv)` appear at the start of your terminal prompt.
-
----
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
----
-
-### 4. Set up your `.env` file
-
-Create a file called `.env` in the root of the project:
-
-```bash
-# macOS / Linux
-touch .env
-
-# Windows (Command Prompt)
-type nul > .env
-```
-
-Open `.env` in your editor and add your Anthropic API key:
+Create a `.env` file in the project root with your Anthropic API key:
 
 ```
 ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-> **Getting an API key:**
-> 1. Go to [console.anthropic.com](https://console.anthropic.com)
-> 2. Sign in or create an account
-> 3. Navigate to **API Keys** and create a new key
-> 4. Copy it directly into `.env` — **never paste it into chat, code, or anywhere else**
-
-> ⚠️ The `.env` file is listed in `.gitignore` and will **never** be committed to GitHub. Keep your key safe.
-
----
-
-### 5. Run the app
+Then run:
 
 ```bash
 python main.py
 ```
 
-The desktop window should open with all five tabs: **Markets, Portfolio, News, AI Analyst, Alerts**.
+The window opens with five tabs: Markets, Portfolio, News, AI Analyst and Alerts.
 
----
+> The `.env` file is listed in `.gitignore`, so the key is never committed.
 
-## 🗂️ Project Structure
+## Troubleshooting
 
-```
-├── main.py                  # App entry point
-├── requirements.txt         # Python dependencies
-├── .env                     # API keys (never commit this!)
-├── .gitignore
-│
-├── models/                  # SQLAlchemy ORM models
-│   └── ...
-│
-├── services/                # Business logic (data fetching, AI, alerts)
-│   ├── fetcher_service.py   # yfinance price fetching
-│   ├── news_service.py      # RSS news scraping
-│   ├── ai_service.py        # Claude API calls
-│   └── ...
-│
-├── repositories/            # Database access layer
-│   └── ...
-│
-├── gui/                     # All GUI code
-│   ├── tabs/                # One file per tab
-│   │   ├── markets_tab.py
-│   │   ├── portfolio_tab.py
-│   │   ├── news_tab.py
-│   │   ├── ai_tab.py
-│   │   └── alerts_tab.py
-│   └── components/          # Reusable UI components
-│       ├── price_row.py
-│       ├── news_card.py
-│       ├── chat_bubble.py
-│       └── ...
-│
-└── database/
-    └── db.py                # SQLAlchemy engine & session setup
-```
-
----
-
-## 🏛️ Architecture
-
-The app follows **MVC architecture** with a service layer:
-
-- **Models** — define database tables via SQLAlchemy ORM
-- **Repositories** — handle all database reads/writes (one session per operation)
-- **Services** — contain all business logic; GUI never touches the DB directly
-- **GUI/Tabs** — thin views that call services and display results
-- **Components** — reusable widgets (PriceRow, NewsCard, ChatBubble, etc.)
-
----
-
-## 🛠️ Common Issues
-
-### `ModuleNotFoundError`
-Make sure your virtual environment is activated — you should see `(venv)` in your terminal. Then run `pip install -r requirements.txt` again.
-
-### `ANTHROPIC_API_KEY not found`
-Make sure your `.env` file exists in the project root and contains the line:
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### SQLite threading errors
-All database sessions must be scoped per-operation, not shared across threads. Each service method should open and close its own session. The engine is configured with `check_same_thread=False`.
-
-### App window doesn't open on Windows
-Try running with `python main.py` from inside the activated virtual environment. If `customtkinter` throws a DPI error, add this near the top of `main.py`:
-```python
-import ctypes
-ctypes.windll.shcore.SetProcessDpiAwareness(1)
-```
-
----
-
-## 🔐 Security Rules
-
-1. **Never paste your API key into chat, code files, or commit history**
-2. **Always store keys in `.env` only**
-3. `.env` is in `.gitignore` — confirm before your first `git push`
-4. If you accidentally expose a key, rotate it immediately at [console.anthropic.com](https://console.anthropic.com)
-
----
-
-## 📬 Questions?
-
-Reach out to Stefano or open an issue in the repo.
+- **`ModuleNotFoundError`**: activate the virtual environment and run `pip install -r requirements.txt` again.
+- **`ANTHROPIC_API_KEY not found`**: check that `.env` exists in the project root and contains the key.
+- **SQLite threading errors**: each service method opens and closes its own session, and the engine uses `check_same_thread=False`.
